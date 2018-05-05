@@ -1,13 +1,251 @@
+// Copyright 2015 The Xorm Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package xorm
 
 import (
-	"database/sql"
+	"errors"
 	"fmt"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
-	"time"
+
+	"github.com/go-xorm/core"
 )
+
+// str2PK convert string value to primary key value according to tp
+func str2PKValue(s string, tp reflect.Type) (reflect.Value, error) {
+	var err error
+	var result interface{}
+	var defReturn = reflect.Zero(tp)
+
+	switch tp.Kind() {
+	case reflect.Int:
+		result, err = strconv.Atoi(s)
+		if err != nil {
+			return defReturn, fmt.Errorf("convert %s as int: %s", s, err.Error())
+		}
+	case reflect.Int8:
+		x, err := strconv.Atoi(s)
+		if err != nil {
+			return defReturn, fmt.Errorf("convert %s as int8: %s", s, err.Error())
+		}
+		result = int8(x)
+	case reflect.Int16:
+		x, err := strconv.Atoi(s)
+		if err != nil {
+			return defReturn, fmt.Errorf("convert %s as int16: %s", s, err.Error())
+		}
+		result = int16(x)
+	case reflect.Int32:
+		x, err := strconv.Atoi(s)
+		if err != nil {
+			return defReturn, fmt.Errorf("convert %s as int32: %s", s, err.Error())
+		}
+		result = int32(x)
+	case reflect.Int64:
+		result, err = strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			return defReturn, fmt.Errorf("convert %s as int64: %s", s, err.Error())
+		}
+	case reflect.Uint:
+		x, err := strconv.ParseUint(s, 10, 64)
+		if err != nil {
+			return defReturn, fmt.Errorf("convert %s as uint: %s", s, err.Error())
+		}
+		result = uint(x)
+	case reflect.Uint8:
+		x, err := strconv.ParseUint(s, 10, 64)
+		if err != nil {
+			return defReturn, fmt.Errorf("convert %s as uint8: %s", s, err.Error())
+		}
+		result = uint8(x)
+	case reflect.Uint16:
+		x, err := strconv.ParseUint(s, 10, 64)
+		if err != nil {
+			return defReturn, fmt.Errorf("convert %s as uint16: %s", s, err.Error())
+		}
+		result = uint16(x)
+	case reflect.Uint32:
+		x, err := strconv.ParseUint(s, 10, 64)
+		if err != nil {
+			return defReturn, fmt.Errorf("convert %s as uint32: %s", s, err.Error())
+		}
+		result = uint32(x)
+	case reflect.Uint64:
+		result, err = strconv.ParseUint(s, 10, 64)
+		if err != nil {
+			return defReturn, fmt.Errorf("convert %s as uint64: %s", s, err.Error())
+		}
+	case reflect.String:
+		result = s
+	default:
+		return defReturn, errors.New("unsupported convert type")
+	}
+	return reflect.ValueOf(result).Convert(tp), nil
+}
+
+func str2PK(s string, tp reflect.Type) (interface{}, error) {
+	v, err := str2PKValue(s, tp)
+	if err != nil {
+		return nil, err
+	}
+	return v.Interface(), nil
+}
+
+func splitTag(tag string) (tags []string) {
+	tag = strings.TrimSpace(tag)
+	var hasQuote = false
+	var lastIdx = 0
+	for i, t := range tag {
+		if t == '\'' {
+			hasQuote = !hasQuote
+		} else if t == ' ' {
+			if lastIdx < i && !hasQuote {
+				tags = append(tags, strings.TrimSpace(tag[lastIdx:i]))
+				lastIdx = i + 1
+			}
+		}
+	}
+	if lastIdx < len(tag) {
+		tags = append(tags, strings.TrimSpace(tag[lastIdx:]))
+	}
+	return
+}
+
+type zeroable interface {
+	IsZero() bool
+}
+
+func isZero(k interface{}) bool {
+	switch k.(type) {
+	case int:
+		return k.(int) == 0
+	case int8:
+		return k.(int8) == 0
+	case int16:
+		return k.(int16) == 0
+	case int32:
+		return k.(int32) == 0
+	case int64:
+		return k.(int64) == 0
+	case uint:
+		return k.(uint) == 0
+	case uint8:
+		return k.(uint8) == 0
+	case uint16:
+		return k.(uint16) == 0
+	case uint32:
+		return k.(uint32) == 0
+	case uint64:
+		return k.(uint64) == 0
+	case float32:
+		return k.(float32) == 0
+	case float64:
+		return k.(float64) == 0
+	case bool:
+		return k.(bool) == false
+	case string:
+		return k.(string) == ""
+	case zeroable:
+		return k.(zeroable).IsZero()
+	}
+	return false
+}
+
+func isStructZero(v reflect.Value) bool {
+	if !v.IsValid() {
+		return true
+	}
+
+	for i := 0; i < v.NumField(); i++ {
+		field := v.Field(i)
+		switch field.Kind() {
+		case reflect.Ptr:
+			field = field.Elem()
+			fallthrough
+		case reflect.Struct:
+			if !isStructZero(field) {
+				return false
+			}
+		default:
+			if field.CanInterface() && !isZero(field.Interface()) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func isArrayValueZero(v reflect.Value) bool {
+	if !v.IsValid() || v.Len() == 0 {
+		return true
+	}
+
+	for i := 0; i < v.Len(); i++ {
+		if !isZero(v.Index(i).Interface()) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func int64ToIntValue(id int64, tp reflect.Type) reflect.Value {
+	var v interface{}
+	kind := tp.Kind()
+
+	if kind == reflect.Ptr {
+		kind = tp.Elem().Kind()
+	}
+
+	switch kind {
+	case reflect.Int16:
+		temp := int16(id)
+		v = &temp
+	case reflect.Int32:
+		temp := int32(id)
+		v = &temp
+	case reflect.Int:
+		temp := int(id)
+		v = &temp
+	case reflect.Int64:
+		temp := id
+		v = &temp
+	case reflect.Uint16:
+		temp := uint16(id)
+		v = &temp
+	case reflect.Uint32:
+		temp := uint32(id)
+		v = &temp
+	case reflect.Uint64:
+		temp := uint64(id)
+		v = &temp
+	case reflect.Uint:
+		temp := uint(id)
+		v = &temp
+	}
+
+	if tp.Kind() == reflect.Ptr {
+		return reflect.ValueOf(v).Convert(tp)
+	}
+	return reflect.ValueOf(v).Elem().Convert(tp)
+}
+
+func int64ToInt(id int64, tp reflect.Type) interface{} {
+	return int64ToIntValue(id, tp).Interface()
+}
+
+func isPKZero(pk core.PK) bool {
+	for _, k := range pk {
+		if isZero(k) {
+			return true
+		}
+	}
+	return false
+}
 
 func indexNoCase(s, sep string) int {
 	return strings.Index(strings.ToLower(s), strings.ToLower(sep))
@@ -55,87 +293,19 @@ func structName(v reflect.Type) string {
 }
 
 func sliceEq(left, right []string) bool {
-	for _, l := range left {
-		var find bool
-		for _, r := range right {
-			if l == r {
-				find = true
-				break
-			}
-		}
-		if !find {
+	if len(left) != len(right) {
+		return false
+	}
+	sort.Sort(sort.StringSlice(left))
+	sort.Sort(sort.StringSlice(right))
+	for i := 0; i < len(left); i++ {
+		if left[i] != right[i] {
 			return false
 		}
 	}
-
 	return true
 }
 
-func value2Bytes(rawValue *reflect.Value) (data []byte, err error) {
-
-	aa := reflect.TypeOf((*rawValue).Interface())
-	vv := reflect.ValueOf((*rawValue).Interface())
-
-	var str string
-	switch aa.Kind() {
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		str = strconv.FormatInt(vv.Int(), 10)
-		data = []byte(str)
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		str = strconv.FormatUint(vv.Uint(), 10)
-		data = []byte(str)
-	case reflect.Float32, reflect.Float64:
-		str = strconv.FormatFloat(vv.Float(), 'f', -1, 64)
-		data = []byte(str)
-	case reflect.String:
-		str = vv.String()
-		data = []byte(str)
-	case reflect.Array, reflect.Slice:
-		switch aa.Elem().Kind() {
-		case reflect.Uint8:
-			data = rawValue.Interface().([]byte)
-		default:
-			err = fmt.Errorf("Unsupported struct type %v", vv.Type().Name())
-		}
-	//时间类型
-	case reflect.Struct:
-		if aa == reflect.TypeOf(c_TIME_DEFAULT) {
-			str = rawValue.Interface().(time.Time).Format(time.RFC3339Nano)
-			data = []byte(str)
-		} else {
-			err = fmt.Errorf("Unsupported struct type %v", vv.Type().Name())
-		}
-	case reflect.Bool:
-		str = strconv.FormatBool(vv.Bool())
-		data = []byte(str)
-	case reflect.Complex128, reflect.Complex64:
-		str = fmt.Sprintf("%v", vv.Complex())
-		data = []byte(str)
-	/* TODO: unsupported types below
-	   case reflect.Map:
-	   case reflect.Ptr:
-	   case reflect.Uintptr:
-	   case reflect.UnsafePointer:
-	   case reflect.Chan, reflect.Func, reflect.Interface:
-	*/
-	default:
-		err = fmt.Errorf("Unsupported struct type %v", vv.Type().Name())
-	}
-	return
-}
-
-func rows2maps(rows *sql.Rows) (resultsSlice []map[string][]byte, err error) {
-	fields, err := rows.Columns()
-	if err != nil {
-		return nil, err
-	}
-	for rows.Next() {
-		result, err := row2map(rows, fields)
-		if err != nil {
-			return nil, err
-		}
-		resultsSlice = append(resultsSlice, result)
-	}
-
-	return resultsSlice, nil
+func indexName(tableName, idxName string) string {
+	return fmt.Sprintf("IDX_%v_%v", tableName, idxName)
 }

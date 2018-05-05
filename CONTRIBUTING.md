@@ -9,6 +9,19 @@ conventions when submitting patches.
 * [fork a repo](https://help.github.com/articles/fork-a-repo)
 * [creating a pull request ](https://help.github.com/articles/creating-a-pull-request)
 
+### Language
+
+Since `xorm` is a world-wide open source project, please describe your issues or code changes in English as soon as possible.
+
+### Sign your codes with comments
+```
+// !<you github id>! your comments
+
+e.g.,
+
+// !lunny! this is comments made by lunny
+```
+
 ### Patch review
 
 Help review existing open [pull requests](https://help.github.com/articles/using-pull-requests) by commenting on the code or
@@ -17,15 +30,12 @@ proposed functionality.
 ### Bug reports
 
 We appreciate any bug reports, but especially ones with self-contained
-(doesn't depend on code outside of pq), minimal (can't be simplified
+(doesn't depend on code outside of xorm), minimal (can't be simplified
 further) test cases. It's especially helpful if you can submit a pull
-request with just the failing test case (you'll probably want to
-pattern it after the tests in
-[base_test.go](https://github.com/lunny/xorm/blob/master/base_test.go) AND
-[benchmark_base_test.go](https://github.com/lunny/xorm/blob/master/benchmark_base_test.go).
+request with just the failing test case(you can find some example test file like [session_get_test.go](https://github.com/go-xorm/xorm/blob/master/session_get_test.go)).
 
-If you implements a new database interface, you maybe need to add a <databasename>_test.go file.
-For example, [mysql_test.go](https://github.com/lunny/xorm/blob/master/mysql_test.go)
+If you implements a new database interface, you maybe need to add a test_<databasename>.sh file.
+For example, [mysql_test.go](https://github.com/go-xorm/xorm/blob/master/test_mysql.sh)
 
 ### New functionality
 
